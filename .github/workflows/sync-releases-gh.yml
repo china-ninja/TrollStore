@@ -15,51 +15,52 @@ jobs:
       - name: Checkout your repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 获取完整的标签（tags）历史
+          fetch-depth: 0 # 获取完整的标签历史
 
       - name: Sync all upstream tags
         run: |
           # 把原仓库的所有 git tag 同步到你的仓库
           git remote add upstream https://github.com/opa334/TrollStore.git || true
-          git fetch upstream --tags
+          git fetch upstream --tags --force
           git push origin --tags --force || true
 
       - name: Sync all releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. 获取原仓库所有 Release 的 Tag 和 说明正文（用 base64 编码防止多行换行导致循环出错）
-          RELEASES=$(gh release list --repo opa334/TrollStore --limit 100 --json tagName,body --jq '.[] | @base64')
+          # 获取所有 Release 的 tag 列表
+          TAGS=$(gh release list --repo opa334/TrollStore --limit 100 --json tagName --jq '.[].tagName')
           
-          for row in $RELEASES; do
-            # 解码获取当前的 tag 和 body
-            DATA=$(echo "$row" | base64 --decode)
-            TAG=$(echo "$DATA" | jq -r '.tagName')
-            BODY=$(echo "$DATA" | jq -r '.body')
-            
+          if [ -z "$TAGS" ]; then
+            echo "原仓库没有找到任何 Release。"
+            exit 0
+          fi
+
+          for TAG in $TAGS; do
             echo "=========================================="
             echo "开始处理 Release: $TAG"
             
-            # 2. 下载原仓库该版本的所有附件（资产）
-            mkdir -p "/tmp/assets/$TAG"
-            gh release download "$TAG" --repo opa334/TrollStore --dir "/tmp/assets/$TAG" || true
+            # 获取原 release 的说明 (body)
+            BODY=$(gh release view "$TAG" --repo opa334/TrollStore --json body --jq '.body' || echo "同步自 opa334/TrollStore")
             
-            # 3. 检查你的仓库里是否已有这个版本的 Release
+            # 下载附件
+            mkdir -p "assets/$TAG"
+            gh release download "$TAG" --repo opa334/TrollStore --dir "assets/$TAG" || true
+            
+            # 检查本地是否已有这个 Release
             if gh release view "$TAG" --repo china-ninja/TrollStore > /dev/null 2>&1; then
-              echo "本地 Release 已存在，正在更新原版说明和附件..."
-              # 更新说明为原版内容
+              echo "本地 Release 已存在，更新说明和附件..."
               gh release edit "$TAG" --repo china-ninja/TrollStore --notes "$BODY"
             else
-              echo "本地 Release 不存在，正在创建..."
-              # 创建新 Release，并使用原版说明（--target main 防止没有对应 commit 时报错）
+              echo "本地 Release 不存在，创建新 Release..."
               gh release create "$TAG" --repo china-ninja/TrollStore --title "$TAG" --notes "$BODY" --target main
             fi
             
-            # 4. 上传附件（如果有的话）
-            if [ -n "$(ls -A /tmp/assets/$TAG 2>/dev/null)" ]; then
-              echo "正在上传附件文件..."
-              gh release upload "$TAG" /tmp/assets/$TAG/* --repo china-ninja/TrollStore --clobber
+            # 上传附件（如果有）
+            if [ -n "$(ls -A assets/$TAG 2>/dev/null)" ]; then
+              echo "上传附件..."
+              gh release upload "$TAG" assets/$TAG/* --repo china-ninja/TrollStore --clobber
             else
-              echo "该版本没有任何附件，跳过上传。"
+              echo "该版本无附件，跳过。"
             fi
           done
