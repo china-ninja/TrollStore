@@ -2,7 +2,8 @@ name: Sync All Releases
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 每天检查一次
+    - cron: "47 8 * * *"
+      timezone: Asia/Shanghai    # 每天 08:47
   workflow_dispatch:     # 支持手动触发
 
 permissions:
