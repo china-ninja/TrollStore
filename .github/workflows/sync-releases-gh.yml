@@ -1,0 +1,36 @@
+name: Sync Releases via gh CLI
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download upstream release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 获取源仓库的最新 release tag
+          TAG=$(gh release view --repo opa334/TrollStore --json tagName -q .tagName)
+          echo "Latest tag: $TAG"
+          mkdir -p assets
+          # 下载所有附件到 assets 目录
+          gh release download "$TAG" --repo opa334/TrollStore --dir assets
+
+      - name: Publish to your fork
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh release view --repo opa334/TrollStore --json tagName -q .tagName)
+          # 如果目标 Release 不存在则创建，存在则上传附件
+          if gh release view "$TAG" --repo china-ninja/TrollStore > /dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --repo china-ninja/TrollStore --clobber
+          else
+            gh release create "$TAG" assets/* --repo china-ninja/TrollStore --title "$TAG" --notes "Synced from opa334/TrollStore"
+          fi
